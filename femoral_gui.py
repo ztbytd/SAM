@@ -41,6 +41,11 @@ class ImageData:
         self.is_saved = False
         self.thumbnail = None
         self.px_per_mm_source = "(默认)"  # 校准来源
+        # 保存分析数据的副本（避免引用问题）
+        self.center = None
+        self.radius = None
+        self.inner_radius = None
+        self.px_per_mm = None
 
     def to_dict(self):
         """转换为字典用于导出"""
@@ -911,20 +916,34 @@ class FemoralHeadApp:
             self.current_image = self.analyzer.image.copy()
             self.image_path = img_data.path
 
-            # 恢复分析结果
-            if img_data.analyzer:
-                self.analyzer = img_data.analyzer
-            else:
-                img_data.analyzer = self.analyzer
+            # 从 ImageData 恢复分析数据（使用保存的副本，避免引用问题）
+            if img_data.is_analyzed and img_data.center is not None:
+                self.analyzer.center = img_data.center
+                self.analyzer.radius = img_data.radius
+                self.analyzer.inner_radius = img_data.inner_radius
+                self.analyzer.results = img_data.results.copy() if img_data.results else []
+                if img_data.px_per_mm is not None:
+                    self.analyzer.px_per_mm = img_data.px_per_mm
+
+            # 更新 img_data.analyzer 引用
+            img_data.analyzer = self.analyzer
 
             # 恢复结果显示
-            self.analyzer.results = img_data.results
-            self.update_results(img_data.results)
+            self.update_results(self.analyzer.results)
+
+            # 如果已分析，重新绘制标注
+            if img_data.is_analyzed and self.analyzer.center is not None:
+                result_img = self.analyzer.draw_result()
+                if result_img is not None:
+                    self.current_image = result_img
 
             # 重置缩放和偏移
             self.zoom_scale = 1.0
             self.image_offset_x = 0
             self.image_offset_y = 0
+
+            # 清除 PIL 缓存，确保显示正确的图片
+            self._pil_cache = None
 
             # 显示图片
             self.display_current_image()
@@ -1740,15 +1759,20 @@ class FemoralHeadApp:
 
         # 更新结果显示
         self.update_results(self.analyzer.results)
-        
+
         # 保存结果到当前ImageData（与自动分析保持一致）
         if self.project.current_index >= 0:
             img_data = self.project.get_current_image()
             if img_data:
-                img_data.results = self.analyzer.results
+                img_data.results = self.analyzer.results.copy() if self.analyzer.results else []
                 img_data.is_analyzed = True
                 img_data.analyzer = self.analyzer
                 img_data.px_per_mm_source = self.pxmm_source_label.cget("text")
+                # 保存分析数据的副本（避免引用问题）
+                img_data.center = self.analyzer.center
+                img_data.radius = self.analyzer.radius
+                img_data.inner_radius = self.analyzer.inner_radius
+                img_data.px_per_mm = self.analyzer.px_per_mm
                 self.update_image_list_display()
                 self.update_project_stats()
         
@@ -2006,10 +2030,15 @@ class FemoralHeadApp:
         if self.project.current_index >= 0:
             img_data = self.project.get_current_image()
             if img_data:
-                img_data.results = results
+                img_data.results = results.copy() if results else []
                 img_data.is_analyzed = True
                 img_data.analyzer = self.analyzer
                 img_data.px_per_mm_source = self.pxmm_source_label.cget("text")
+                # 保存分析数据的副本（避免引用问题）
+                img_data.center = self.analyzer.center
+                img_data.radius = self.analyzer.radius
+                img_data.inner_radius = self.analyzer.inner_radius
+                img_data.px_per_mm = self.analyzer.px_per_mm
                 self.update_image_list_display()
                 self.update_project_stats()
 
