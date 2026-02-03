@@ -1209,23 +1209,52 @@ class FemoralHeadApp:
             return
 
         saved_count = 0
-        
+
         for img_data in self.project.images:
             # 只保存已分析的图片
-            if img_data.is_analyzed:
-                if img_data.analyzer and img_data.analyzer.image is not None:
-                    try:
-                        # 绘制结果
-                        result_img = img_data.analyzer.draw_result()
-                        if result_img is not None:
-                            # 保存图片
-                            filename = os.path.splitext(img_data.name)[0] + "_result.png"
-                            filepath = os.path.join(self.project.output_dir, filename)
-                            cv2.imwrite(filepath, result_img)
-                            img_data.is_saved = True
-                            saved_count += 1
-                    except Exception as e:
-                        print(f"保存 {img_data.name} 失败: {e}")
+            if img_data.is_analyzed and img_data.center is not None:
+                try:
+                    # 重新加载原始图片
+                    original_img = cv2.imdecode(np.fromfile(img_data.path, dtype=np.uint8), cv2.IMREAD_COLOR)
+                    if original_img is None:
+                        print(f"无法加载图片 {img_data.name}")
+                        continue
+
+                    # 使用保存的分析数据绘制结果
+                    vis = original_img.copy()
+                    cx, cy = img_data.center
+
+                    # 股骨头（绿色）
+                    cv2.circle(vis, img_data.center, img_data.radius, (0, 255, 0), 2)
+
+                    # 圆心（红色十字）
+                    cv2.line(vis, (cx-10, cy), (cx+10, cy), (0, 0, 255), 2)
+                    cv2.line(vis, (cx, cy-10), (cx, cy+10), (0, 0, 255), 2)
+
+                    # r-6mm内圆（青色）
+                    if img_data.inner_radius:
+                        cv2.circle(vis, img_data.center, img_data.inner_radius, (255, 255, 0), 2)
+
+                    # 交点和ROI
+                    for r in img_data.results:
+                        inter = r['intersection']
+                        # 交点（橙色）
+                        cv2.circle(vis, (inter['x'], inter['y']), 4, (0, 165, 255), -1)
+                        # 硬化带ROI（绿色，线宽1）
+                        cv2.circle(vis, r['sclerotic'], r['roi_radius'], (0, 255, 0), 1)
+                        # 坏死区ROI（红色，线宽1）
+                        cv2.circle(vis, r['necrosis'], r['roi_radius'], (0, 0, 255), 1)
+
+                    # 保存图片
+                    filename = os.path.splitext(img_data.name)[0] + "_result.png"
+                    filepath = os.path.join(self.project.output_dir, filename)
+                    # 使用 imencode + tofile 支持中文路径
+                    _, img_encoded = cv2.imencode('.png', vis)
+                    img_encoded.tofile(filepath)
+                    img_data.is_saved = True
+                    saved_count += 1
+                except Exception as e:
+                    print(f"保存 {img_data.name} 失败: {e}")
 
         self.update_image_list_display()
         self.update_project_stats()
